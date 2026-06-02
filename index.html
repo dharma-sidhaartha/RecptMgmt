@@ -65,7 +65,10 @@
           <p class="text-sm text-slate-400" id="user-info">Loading...</p>
         </div>
       </div>
-      <div class="flex gap-2">
+      <div class="flex gap-2 flex-wrap">
+        <button id="export-pdf" class="rounded-xl bg-emerald-500/20 px-4 py-2 text-sm font-semibold text-emerald-300 ring-1 ring-emerald-500/30 hover:ring-emerald-500/50">📄 PDF</button>
+        <button id="export-csv" class="rounded-xl bg-blue-500/20 px-4 py-2 text-sm font-semibold text-blue-300 ring-1 ring-blue-500/30 hover:ring-blue-500/50">📊 CSV</button>
+        <button id="clear-form" class="rounded-xl bg-rose-500/20 px-4 py-2 text-sm font-semibold text-rose-300 ring-1 ring-rose-500/30 hover:ring-rose-500/50">Clear</button>
         <button id="logout-btn" class="rounded-xl bg-white/10 px-4 py-2 text-sm font-semibold text-white ring-1 ring-white/10 hover:bg-white/15">Logout</button>
       </div>
     </header>
@@ -123,6 +126,8 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+  <script src="https://unpkg.com/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <script src="https://unpkg.com/jspdf-autotable@3.5.31/dist/jspdf.plugin.autotable.min.js"></script>
 
   <script>
     // ╔══════════════════════════════════════════════════════════════╗
@@ -276,6 +281,134 @@
       document.getElementById('note').value = '';
       document.getElementById('date').value = today;
       toast('Form cleared', 'blue');
+    };
+
+    document.getElementById('clear-form').onclick = () => {
+      document.getElementById('name').value = '';
+      document.getElementById('amount').value = '';
+      document.getElementById('note').value = '';
+      document.getElementById('date').value = today;
+      toast('Form cleared', 'blue');
+    };
+
+    document.getElementById('export-csv').onclick = () => {
+      if (receipts.length === 0) { toast('No receipts to export', 'red'); return; }
+      try {
+        const headers = ['Name', 'Amount', 'Date', 'UPI App', 'Note'];
+        const rows = receipts.map(r => [
+          `"${String(r.name).replace(/"/g, '""')}"`,
+          r.amount,
+          r.date,
+          `"${String(r.upi).replace(/"/g, '""')}"`,
+          `"${String(r.note || '').replace(/"/g, '""')}"`
+        ].join(','));
+        const csv = [headers.join(','), ...rows].join('\n');
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `receipts-${today}.csv`;
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        toast('CSV downloaded!');
+      } catch (err) {
+        console.error(err);
+        toast('CSV failed: ' + err.message, 'red');
+      }
+    };
+
+    document.getElementById('export-pdf').onclick = () => {
+      if (receipts.length === 0) { toast('No receipts to export', 'red'); return; }
+      try {
+        const jsPDFConstructor = window.jspdf ? window.jspdf.jsPDF : window.jsPDF;
+        if (!jsPDFConstructor) { toast('PDF library not loaded', 'red'); return; }
+        const doc = new jsPDFConstructor({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+        const pageWidth = doc.internal.pageSize.getWidth();
+        const totalAmount = receipts.reduce((sum, r) => sum + Number(r.amount || 0), 0);
+        const todayAmount = receipts.filter(r => r.date === today).reduce((sum, r) => sum + Number(r.amount || 0), 0);
+
+        doc.setFillColor(99, 102, 241);
+        doc.rect(0, 0, pageWidth, 35, 'F');
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(22);
+        doc.setFont('helvetica', 'bold');
+        doc.text('Receipt Report', 14, 20);
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'normal');
+        doc.text('Payment Tracking Summary', 14, 28);
+
+        doc.setFillColor(248, 250, 252);
+        doc.roundedRect(14, 42, pageWidth - 28, 25, 3, 3, 'F');
+        doc.setTextColor(71, 85, 105);
+        doc.setFontSize(9);
+        doc.text('TOTAL AMOUNT', 20, 50);
+        doc.text('RECEIPTS', pageWidth / 2, 50);
+        doc.text("TODAY'S SPEND", pageWidth - 50, 50);
+        doc.setTextColor(30, 41, 59);
+        doc.setFontSize(14);
+        doc.setFont('helvetica', 'bold');
+        doc.text('Rs. ' + totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 }), 20, 60);
+        doc.text(String(receipts.length), pageWidth / 2, 60);
+        doc.text('Rs. ' + todayAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 }), pageWidth - 50, 60);
+
+        // Manual table: does not depend on jspdf-autotable.
+        const rows = [...receipts].sort((a, b) => a.date < b.date ? 1 : -1);
+        let y = 78;
+        const left = 14;
+        const col = { desc: 66, amount: 34, date: 32, upi: 42 };
+
+        function drawTableHeader() {
+          doc.setFillColor(30, 41, 59);
+          doc.rect(left, y, pageWidth - 28, 9, 'F');
+          doc.setTextColor(255, 255, 255);
+          doc.setFontSize(8);
+          doc.setFont('helvetica', 'bold');
+          doc.text('Description', left + 3, y + 6);
+          doc.text('Amount', left + col.desc + 3, y + 6);
+          doc.text('Date', left + col.desc + col.amount + 3, y + 6);
+          doc.text('UPI App', left + col.desc + col.amount + col.date + 3, y + 6);
+          y += 9;
+        }
+
+        drawTableHeader();
+        rows.forEach((r, index) => {
+          if (y > 275) {
+            doc.addPage();
+            y = 16;
+            drawTableHeader();
+          }
+          if (index % 2 === 0) {
+            doc.setFillColor(248, 250, 252);
+            doc.rect(left, y, pageWidth - 28, 9, 'F');
+          }
+          doc.setTextColor(30, 41, 59);
+          doc.setFontSize(8);
+          doc.setFont('helvetica', 'normal');
+          doc.text(String(r.name || '').slice(0, 32), left + 3, y + 6);
+          doc.setFont('helvetica', 'bold');
+          doc.text('Rs. ' + Number(r.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 }), left + col.desc + col.amount - 3, y + 6, { align: 'right' });
+          doc.setFont('helvetica', 'normal');
+          doc.text(String(r.date || ''), left + col.desc + col.amount + 3, y + 6);
+          doc.text(String(r.upi || '').slice(0, 20), left + col.desc + col.amount + col.date + 3, y + 6);
+          y += 9;
+        });
+
+        const pageCount = doc.internal.getNumberOfPages();
+        for (let i = 1; i <= pageCount; i++) {
+          doc.setPage(i);
+          doc.setFontSize(8);
+          doc.setTextColor(100, 116, 139);
+          doc.text(`Page ${i} of ${pageCount}`, pageWidth / 2, doc.internal.pageSize.getHeight() - 10, { align: 'center' });
+        }
+        doc.save(`receipts-${today}.pdf`);
+        toast('PDF downloaded!');
+      } catch (err) {
+        console.error(err);
+        toast('PDF failed: ' + err.message, 'red');
+      }
     };
 
     // Delete
