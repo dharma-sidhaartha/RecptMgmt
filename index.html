@@ -325,90 +325,216 @@
       try {
         const jsPDFConstructor = window.jspdf ? window.jspdf.jsPDF : window.jsPDF;
         if (!jsPDFConstructor) { toast('PDF library not loaded', 'red'); return; }
-        const doc = new jsPDFConstructor({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-        const pageWidth = doc.internal.pageSize.getWidth();
-        const totalAmount = receipts.reduce((sum, r) => sum + Number(r.amount || 0), 0);
-        const todayAmount = receipts.filter(r => r.date === today).reduce((sum, r) => sum + Number(r.amount || 0), 0);
 
+        const doc = new jsPDFConstructor({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+        const pw = doc.internal.pageSize.getWidth();
+        const ph = doc.internal.pageSize.getHeight();
+        const ML = 12;
+        const MR = 12;
+        const CW = pw - ML - MR;
+
+        const totalAmount = receipts.reduce((s, r) => s + Number(r.amount || 0), 0);
+
+        // ── DARK HEADER ──
+        doc.setFillColor(15, 23, 42);
+        doc.rect(0, 0, pw, 50, 'F');
+        // Glossy gradient overlay
+        doc.setFillColor(30, 41, 59);
+        doc.rect(0, 0, pw, 25, 'F');
+        // Accent bar
         doc.setFillColor(99, 102, 241);
-        doc.rect(0, 0, pageWidth, 35, 'F');
+        doc.rect(0, 48, pw, 2, 'F');
+        // Decorative circles
+        doc.setFillColor(99, 102, 241);
+        doc.circle(pw - 15, -5, 30, 'F');
+        doc.setFillColor(139, 92, 246);
+        doc.circle(pw + 5, 35, 25, 'F');
+        doc.setFillColor(79, 70, 229);
+        doc.circle(pw - 40, 55, 18, 'F');
+        // Small accent dot
+        doc.setFillColor(16, 185, 129);
+        doc.circle(35, 8, 2, 'F');
+
+        // Title
         doc.setTextColor(255, 255, 255);
-        doc.setFontSize(22);
+        doc.setFontSize(28);
         doc.setFont('helvetica', 'bold');
-        doc.text('Receipt Report', 14, 20);
+        doc.text('Receipt Report', ML + 2, 22);
+        // Subtitle
         doc.setFontSize(10);
         doc.setFont('helvetica', 'normal');
-        doc.text('Payment Tracking Summary', 14, 28);
+        doc.setTextColor(148, 163, 184);
+        doc.text('Payment Tracking Summary', ML + 2, 32);
+        // Export date
+        doc.setTextColor(100, 116, 139);
+        doc.setFontSize(7);
+        doc.setFont('helvetica', 'normal');
+        doc.text('Exported: ' + new Date().toLocaleString('en-IN'), ML + 2, 42);
 
-        doc.setFillColor(248, 250, 252);
-        doc.roundedRect(14, 42, pageWidth - 28, 25, 3, 3, 'F');
-        doc.setTextColor(71, 85, 105);
-        doc.setFontSize(9);
-        doc.text('TOTAL AMOUNT', 20, 50);
-        doc.text('RECEIPTS', pageWidth / 2, 50);
-        doc.text("TODAY'S SPEND", pageWidth - 50, 50);
-        doc.setTextColor(30, 41, 59);
-        doc.setFontSize(14);
+        // ── COMPACT SUMMARY BAR ──
+        const barY = 54;
+        const barH = 12;
+
+        // Dark bar background
+        doc.setFillColor(30, 41, 59);
+        doc.roundedRect(ML, barY, CW, barH, 2, 2, 'F');
+
+        // Accent dot - Indigo
+        doc.setFillColor(99, 102, 241);
+        doc.circle(ML + 6, barY + 6, 2.5, 'F');
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(6.5);
         doc.setFont('helvetica', 'bold');
-        doc.text('Rs. ' + totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 }), 20, 60);
-        doc.text(String(receipts.length), pageWidth / 2, 60);
-        doc.text('Rs. ' + todayAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 }), pageWidth - 50, 60);
+        doc.text('TOTAL RECEIVED', ML + 12, barY + 5);
+        doc.setTextColor(99, 102, 241);
+        doc.setFontSize(9);
+        doc.text('Rs. ' + totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 }), ML + 12, barY + 10);
 
-        // Manual table: does not depend on jspdf-autotable.
-        const rows = [...receipts].sort((a, b) => a.date < b.date ? 1 : -1);
-        let y = 78;
-        const left = 14;
-        const col = { desc: 66, amount: 34, date: 32, upi: 42 };
+        // ── TABLE STARTS IMMEDIATELY ──
+        const tableStartY = barY + barH + 4;
+        doc.setFillColor(15, 23, 42);
+        doc.roundedRect(ML, tableStartY, CW, 10, 2, 2, 'F');
+        doc.setTextColor(148, 163, 184);
+        doc.setFontSize(8);
+        doc.setFont('helvetica', 'bold');
+        doc.text('TRANSACTION DETAILS', ML + 5, tableStartY + 7);
+        doc.setTextColor(99, 102, 241);
+        doc.setFontSize(8);
+        doc.setFont('helvetica', 'bold');
+        doc.text(String(receipts.length) + ' entries', ML + CW - 25, tableStartY + 7, { align: 'right' });
 
-        function drawTableHeader() {
-          doc.setFillColor(30, 41, 59);
-          doc.rect(left, y, pageWidth - 28, 9, 'F');
-          doc.setTextColor(255, 255, 255);
-          doc.setFontSize(8);
-          doc.setFont('helvetica', 'bold');
-          doc.text('Description', left + 3, y + 6);
-          doc.text('Amount', left + col.desc + 3, y + 6);
-          doc.text('Date', left + col.desc + col.amount + 3, y + 6);
-          doc.text('UPI App', left + col.desc + col.amount + col.date + 3, y + 6);
-          y += 9;
-        }
+        // ── TABLE DATA ──
+        const tableData = [...receipts]
+          .sort((a, b) => a.date < b.date ? 1 : -1)
+          .map((r, i) => [
+            String(i + 1),
+            String(r.name || ''),
+            'Rs. ' + Number(r.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 }),
+            r.date ? r.date.split('-').reverse().join('-') : '',
+            r.upi || '',
+            r.note || '-'
+          ]);
 
-        drawTableHeader();
-        rows.forEach((r, index) => {
-          if (y > 275) {
-            doc.addPage();
-            y = 16;
-            drawTableHeader();
+        doc.autoTable({
+          startY: tableStartY + 12,
+          head: [['#', 'Description', 'Amount', 'Date', 'UPI App', 'Note']],
+          body: tableData,
+          foot: [['GRAND TOTAL', '', 'Rs. ' + totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 }), '', '', '']],
+          showFoot: 'lastPage',
+          theme: 'grid',
+          headStyles: {
+            fillColor: [30, 41, 59],
+            textColor: [255, 255, 255],
+            fontSize: 8.5,
+            fontStyle: 'bold',
+            halign: 'center',
+            cellPadding: 4
+          },
+          bodyStyles: {
+            fontSize: 8,
+            cellPadding: 2.5,
+            textColor: [30, 41, 59],
+            valign: 'middle',
+            overflow: 'linebreak'
+          },
+          footStyles: {
+            fillColor: [15, 23, 42],
+            textColor: [255, 255, 255],
+            fontSize: 9,
+            fontStyle: 'bold',
+            cellPadding: 4,
+            overflow: 'linebreak'
+          },
+          alternateRowStyles: {
+            fillColor: [248, 250, 252]
+          },
+          columnStyles: {
+            0: { halign: 'center', textColor: [100, 116, 139], fontStyle: 'bold' },
+            2: { halign: 'center', textColor: [5, 150, 105], fontStyle: 'bold' },
+            3: { halign: 'center' },
+            4: { textColor: [99, 102, 241] },
+            5: { textColor: [100, 116, 139], fontStyle: 'italic' }
+          },
+          margin: { left: ML, right: MR },
+          tableLineColor: [203, 213, 225],
+          tableLineWidth: 0.25,
+          didParseCell: function(data) {
+            // Bold amount in foot + center align
+            if (data.section === 'foot' && data.column.index === 2) {
+              data.cell.styles.textColor = [16, 185, 129];
+              data.cell.styles.halign = 'center';
+            }
+            // Center align GRAND TOTAL text
+            if (data.section === 'foot' && data.column.index === 0) {
+              data.cell.styles.halign = 'center';
+              data.cell.styles.fontStyle = 'bold';
+            }
           }
-          if (index % 2 === 0) {
-            doc.setFillColor(248, 250, 252);
-            doc.rect(left, y, pageWidth - 28, 9, 'F');
-          }
-          doc.setTextColor(30, 41, 59);
-          doc.setFontSize(8);
-          doc.setFont('helvetica', 'normal');
-          doc.text(String(r.name || '').slice(0, 32), left + 3, y + 6);
-          doc.setFont('helvetica', 'bold');
-          doc.text('Rs. ' + Number(r.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 }), left + col.desc + col.amount - 3, y + 6, { align: 'right' });
-          doc.setFont('helvetica', 'normal');
-          doc.text(String(r.date || ''), left + col.desc + col.amount + 3, y + 6);
-          doc.text(String(r.upi || '').slice(0, 20), left + col.desc + col.amount + col.date + 3, y + 6);
-          y += 9;
         });
 
+        // ── FOOTER ON EVERY PAGE ──
         const pageCount = doc.internal.getNumberOfPages();
         for (let i = 1; i <= pageCount; i++) {
           doc.setPage(i);
-          doc.setFontSize(8);
-          doc.setTextColor(100, 116, 139);
-          doc.text(`Page ${i} of ${pageCount}`, pageWidth / 2, doc.internal.pageSize.getHeight() - 10, { align: 'center' });
+          // Footer bar
+          doc.setFillColor(15, 23, 42);
+          doc.rect(0, ph - 14, pw, 14, 'F');
+          doc.setFillColor(99, 102, 241);
+          doc.rect(0, ph - 14, pw, 1, 'F');
+          // Footer text
+          doc.setTextColor(148, 163, 184);
+          doc.setFontSize(7);
+          doc.setFont('helvetica', 'normal');
+          doc.text('Receipt Manager — Live Sync App', ML + 2, ph - 6);
+          doc.text('Page ' + i + ' of ' + pageCount, pw / 2, ph - 6, { align: 'center' });
+          doc.setTextColor(99, 102, 241);
+          doc.setFont('helvetica', 'bold');
+          doc.text('receiptmanager.app', pw - MR - 2, ph - 6, { align: 'right' });
         }
-        doc.save(`receipts-${today}.pdf`);
+
+        doc.save('receipts-' + today + '.pdf');
         toast('PDF downloaded!');
       } catch (err) {
         console.error(err);
         toast('PDF failed: ' + err.message, 'red');
       }
+    };
+
+    // Edit receipt
+    function editReceipt(id) {
+      const r = receipts.find(x => x.id === id);
+      if (!r) return;
+      document.getElementById('name').value = r.name;
+      document.getElementById('amount').value = r.amount;
+      document.getElementById('date').value = r.date;
+      document.getElementById('upi').value = r.upi;
+      document.getElementById('note').value = r.note || '';
+      document.getElementById('receipt-form').scrollIntoView({ behavior: 'smooth' });
+      document.getElementById('name').focus();
+    }
+    window.editReceipt = editReceipt;
+
+    // Duplicate receipt
+    window.duplicateReceipt = (id) => {
+      const r = receipts.find(x => x.id === id);
+      if (!r) return;
+      const newR = {
+        id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
+        name: r.name,
+        amount: r.amount,
+        date: new Date().toISOString().split('T')[0], // today
+        upi: r.upi,
+        note: r.note || ''
+      };
+      receipts.unshift(newR);
+      localWrite = true;
+      myRef.set(receipts)
+        .then(() => {
+          render();
+          updateStats();
+          toast('Duplicated!', 'blue');
+        })
+        .catch(err => toast('Duplicate failed: ' + err.message, 'red'));
     };
 
     // Delete
@@ -457,9 +583,17 @@
           </div>
           <div class="flex items-center gap-4">
             <span class="text-xl font-bold text-white">${formatAmount(r.amount)}</span>
-            <button onclick="deleteReceipt('${r.id}')" class="rounded-lg p-2 text-slate-400 hover:bg-rose-500/20 hover:text-rose-300">
-              <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m-9 4v10a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V10"/></svg>
-            </button>
+            <div class="flex gap-1">
+              <button onclick="duplicateReceipt('${r.id}')" class="rounded-lg p-1.5 text-slate-400 hover:bg-indigo-500/20 hover:text-indigo-400" title="Duplicate">
+                <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              </button>
+              <button onclick="editReceipt('${r.id}')" class="rounded-lg p-1.5 text-slate-400 hover:bg-indigo-500/20 hover:text-indigo-400" title="Edit">
+                <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4z"/></svg>
+              </button>
+              <button onclick="deleteReceipt('${r.id}')" class="rounded-lg p-1.5 text-slate-400 hover:bg-rose-500/20 hover:text-rose-300" title="Delete">
+                <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m-9 4v10a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V10"/></svg>
+              </button>
+            </div>
           </div>
         </div>
       `).join('');
